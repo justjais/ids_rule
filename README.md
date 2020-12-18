@@ -34,7 +34,7 @@ Dependencies will vary by provider
 
 ## snort Dependencies
 
-* [
+* [idstools](https://idstools.readthedocs.io/en/latest/)
 
 
 Example Playbook
@@ -42,6 +42,7 @@ Example Playbook
 
 * For pushing single rule at a time:
 
+```
     - name: manage snort rules
       hosts: idshosts
       become: yes
@@ -64,9 +65,11 @@ Example Playbook
             ids_rule: 'alert {{protocol}} {{source_ip}} {{source_port}} -> {{dest_ip}} {{dest_port}}  (msg:"Attempted /etc/passwd Attack"; uricontent:"/etc/passwd"; classtype:attempted-user; sid:99000004; priority:1; rev:1;)'
             ids_rules_file: '/etc/snort/rules/local.rules'
             ids_rule_state: present
+```
 
 * For pushing list of rules:
 
+```
     - name: manage snort rules
       hosts: idshosts
       become: yes
@@ -85,13 +88,16 @@ Example Playbook
             ids_rules_file: '/etc/snort/rules/local.rules'
             ids_rule_state: present
           loop: "{{ lookup('file', 'rules.txt', wantlist=True) }}"
+```
 
 * 'rules.txt' file:
 
+```
     alert tcp $HOME_NET any -> any any (msg:"APT.Backdoor.MSIL.SUNBURST"; content:"T "; offset:2; depth:3; content:"/swip/Events HTTP/1"; within:100; content:"Host: "; content:!".solarwinds.com"; within:100; sid:77600832; rev:1;)
     alert tcp $HOME_NET any -> any any (msg:"APT.Backdoor.MSIL.SUNBURST"; content:"T "; offset:2; depth:3; content:"/swip/upd/SolarWinds.CortexPlugin.Components.xml"; distance:0; content:"Host: "; content:!".solarwinds.com"; within:100; sid:77600833; rev:1;)
     alert tcp any any -> any any (msg:"APT.Backdoor.MSIL.SUNBURST"; content:"T "; offset:2; depth:3; content:"Host:"; content:".avsvmcloud.com"; distance:0; sid:77600842; rev:1;)
     alert tcp $HOME_NET any -> any any (msg:"APT.Backdoor.MSIL.SUNBURST"; content:"T "; offset:2; depth:3; content:"swip/Upload.ashx HTTP/1"; within:100; content:"Host: "; content:!".solarwinds.com"; within:100; sid:77600843; rev:1;)
+```
 
 License
 -------
