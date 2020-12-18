@@ -64,6 +64,7 @@ except ImportError:
 SIGMAP_FILE = "/etc/snort/sid-msg.map"
 GENMAP_FILE = "/etc/snort/gen-msg.map"
 
+
 def main():
 
     module = AnsibleModule(
@@ -79,96 +80,103 @@ def main():
         module.fail_json(msg="Python module idstools not found on host, but is required for snort_rule Ansible module")
 
     try:
-        matched_rules = [
-            snort_rule for snort_rule in rule.parse_file(module.params['rules_file'])
-            if to_text(snort_rule) == to_text(rule.parse(module.params['rule']))
-        ]
+        matched_rules = []
+        for snort_rule in rule.parse_file(module.params['rules_file']):
+            for each in module.params['rule'].splitlines():
+                if to_text(snort_rule) == to_text(rule.parse(each)):
+                    matched_rules.append(snort_rule)
+                    break
+
     except IOError:
-        module.fail_json(msg="rule file {} not found or permission was denied attempting access it".format(module.params['rules_file']))
-    rule_found = True if matched_rules else False
+        module.fail_json(msg="rule file {0} not found or permission was denied attempting access it".format(
+            module.params['rules_file']))
+    rule_found = True if matched_rules and len(matched_rules) == len(module.params['rule'].splitlines()) else False
 
     sigmap = maps.SignatureMap()
     try:
         sigmap.load_generator_map(open(GENMAP_FILE, 'r'))
     except IOError:
-        module.fail_json(msg="generator file {} not found or permission was denied attempting to access it".format(GENMAP_FILE))
+        module.fail_json(msg="generator file {0} not found or permission was denied attempting to access it".format(
+            GENMAP_FILE))
     try:
         sigmap.load_signature_map(open(SIGMAP_FILE, 'r'))
     except IOError:
-        module.fail_json(msg="signature file {} not found or permission was denied attempting to access it".format(SIGMAP_FILE))
-
+        module.fail_json(msg="signature file {0} not found or permission was denied attempting to access it".format(
+            SIGMAP_FILE))
 
     if module.params['state'] == 'present' and rule_found:
         module.exit_json(
-            msg="Rule '{}' already present in rules_file {}".format(module.params['rule'], module.params['rules_file']),
+            msg="Rule '{0}' already present in rules_file {1}".format(
+                module.params['rule'], module.params['rules_file']),
             changed=False
         )
     elif module.params['state'] == 'present' and not rule_found:
         if module.check_mode:
             module.exit_json(
-                msg="Rule '{}' would be added to rules_file {}".format(module.params['rule'], module.params['rules_file']),
+                msg="Rule '{0}' would be added to rules_file {1}".format(
+                    module.params['rule'], module.params['rules_file']),
                 changed=True
             )
 
-        new_snort_rule = rule.parse(module.params['rule'])
+        for each in module.params['rule'].splitlines():
+            new_snort_rule = rule.parse(each)
+            if new_snort_rule not in matched_rules:
+                with open(module.params['rules_file'], 'a') as rules_file:
+                    rules_file.write(to_text("\n{0}".format(new_snort_rule)))
 
-        with open(module.params['rules_file'], 'a') as rules_file:
-            rules_file.write(to_text("\n{}".format(new_snort_rule)))
-
-        with open(SIGMAP_FILE, 'a') as sigmap_file:
-            if "ref" in new_snort_rule and len(new_snort_rule["ref"]) > 0:
-                sigmap_file.write(to_text("\n{} || {} || {}".format(
-                    new_snort_rule['sid'], new_snort_rule['msg'], " || ".join(new_snort_rule['ref'])
-                )))
-            else:
-                sigmap_file.write(to_text("\n{} || {}".format(new_snort_rule['sid'], new_snort_rule['msg'])))
+                with open(SIGMAP_FILE, 'a') as sigmap_file:
+                    if "ref" in new_snort_rule and len(new_snort_rule["ref"]) > 0:
+                        sigmap_file.write(to_text("\n{0} || {1} || {2}".format(
+                            new_snort_rule['sid'], new_snort_rule['msg'], " || ".join(new_snort_rule['ref'])
+                        )))
+                    else:
+                        sigmap_file.write(to_text("\n{0} || {1}".format(
+                            new_snort_rule['sid'], new_snort_rule['msg'])))
 
         module.exit_json(
-            msg="Rule '{}' added to rules_file {}".format(module.params['rule'], module.params['rules_file']),
+            msg="Rule '{0}' added to rules_file {1}".format(module.params['rule'], module.params['rules_file']),
             changed=True
         )
 
     if module.params['state'] == 'absent' and not rule_found:
         module.exit_json(
-            msg="Rule '{}' does not exist in rules_file {}".format(module.params['rule'], module.params['rules_file']),
+            msg="Rule '{0}' does not exist in rules_file {1}".format(
+                module.params['rule'], module.params['rules_file']),
             changed=False
         )
     elif module.params['state'] == 'absent' and rule_found:
-        new_snort_rule = rule.parse(module.params['rule'])
+        for each in module.params['rule'].splitlines():
+            new_snort_rule = rule.parse(each)
+            changed = False
 
-        changed = False
+            with open(module.params['rules_file'], 'r') as rules_file:
+                orig_rulefile_contents = rules_file.readlines()
+            with open(SIGMAP_FILE, 'r') as sigmap_file:
+                orig_sigmapfile_contents = sigmap_file.readlines()
 
-        orig_rulefile_contents = []
-        orig_sigmapfile_contents = []
-        new_rulefile_contents = []
-        new_sigmapfile_contents = []
-        with open(module.params['rules_file'], 'r') as rules_file:
-            orig_rulefile_contents = rules_file.readlines()
-        with open(SIGMAP_FILE,'r') as sigmap_file:
-            orig_sigmapfile_contents = sigmap_file.readlines()
+            new_rulefile_contents = []
+            for line in orig_rulefile_contents:
+                if new_snort_rule != rule.parse(line):
+                    new_rulefile_contents.append(line)
+                    break
 
-        new_rulefile_contents = [
-            line for line in orig_rulefile_contents
-            if new_snort_rule != rule.parse(line)
-        ]
-
-        if "ref" in new_snort_rule and len(new_snort_rule["ref"]) > 0:
-            new_sigmapfile_contents = [
-                line for line in orig_sigmapfile_contents
-                if "{} || {} || {}".format(
-                    new_snort_rule['sid'], new_snort_rule['msg'], ' || '.join(new_snort_rule['ref'])
-                ) != line.strip()
-            ]
-        else:
-            new_sigmapfile_contents = [
-                line for line in orig_sigmapfile_contents
-                if "{} || {}".format(new_snort_rule['sid'], new_snort_rule['msg']) != line.strip()
-            ]
+            if "ref" in new_snort_rule and len(new_snort_rule["ref"]) > 0:
+                new_sigmapfile_contents = []
+                for line in orig_sigmapfile_contents:
+                    if "{0} || {1} || {2}".format(
+                            new_snort_rule['sid'], new_snort_rule['msg'], ' || '.join(
+                                new_snort_rule['ref'])) != line.strip():
+                        new_sigmapfile_contents.append(line)
+            else:
+                new_sigmapfile_contents = []
+                for line in orig_sigmapfile_contents:
+                    if "{0} || {1}".format(new_snort_rule['sid'], new_snort_rule['msg']) != line.strip():
+                        new_sigmapfile_contents.append(line)
 
         if module.check_mode:
             if len(orig_rulefile_contents) != len(new_rulefile_contents):
                 module.exit_json(
-                    msg="Rule '{}' would have been removed from rules_file {}".format(
+                    msg="Rule '{0}' would have been removed from rules_file {1}".format(
                         module.params['rule'],
                         module.params['rules_file']
                     ),
@@ -188,7 +196,7 @@ def main():
                     sigmap_file.write(line)
 
         module.exit_json(
-            msg="Rule '{}' has been removed from rules_file {}".format(
+            msg="Rule '{0}' has been removed from rules_file {1}".format(
                 module.params['rule'],
                 module.params['rules_file']
             ),
